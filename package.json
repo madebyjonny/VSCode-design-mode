@@ -1,0 +1,25 @@
+{
+  "name": "component-preview",
+  "displayName": "Component Preview",
+  "description": "Preview Vue/React/Svelte components in VS Code",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.85.0" },
+  "main": "./out/extension.js",
+  "activationEvents": ["onLanguage:vue", "onLanguage:javascriptreact", "onLanguage:typescriptreact", "onLanguage:svelte"],
+  "contributes": {
+    "commands": [{ "command": "componentPreview.toggle", "title": "Preview Component", "icon": "$(eye)" }],
+    "menus": {
+      "editor/title": [{ "command": "componentPreview.toggle", "when": "resourceExtname =~ /\\.(vue|jsx|tsx|svelte)$/", "group": "navigation" }]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "setup": "cd viewer && npm install"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}

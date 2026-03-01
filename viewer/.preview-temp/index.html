@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Preview</title>
+  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --toolbar-h: 40px;
+  --panel-w: 280px;
+  --bg-900: #09090b;
+  --bg-800: #18181b;
+  --bg-700: #27272a;
+  --bg-600: #3f3f46;
+  --border: #27272a;
+  --text-100: #fafafa;
+  --text-200: #a1a1aa;
+  --text-300: #71717a;
+  --accent: #3b82f6;
+  --success: #22c55e;
+  --warning: #eab308;
+  --error: #ef4444;
+}
+
+html, body { 
+  height: 100%; 
+  font-family: system-ui, -apple-system, sans-serif; 
+  background: var(--bg-900); 
+  color: var(--text-100); 
+  overflow: hidden; 
+  font-size: 12px; 
+}
+
+/* Layout */
+.layout { display: grid; grid-template-rows: var(--toolbar-h) 1fr; grid-template-columns: 1fr; height: 100%; }
+.layout.panel-open { grid-template-columns: 1fr var(--panel-w); }
+
+/* Toolbar */
+.toolbar { 
+  grid-column: 1/-1; 
+  background: var(--bg-800); 
+  border-bottom: 1px solid var(--border); 
+  display: flex; 
+  align-items: center; 
+  padding: 0 6px; 
+  gap: 2px; 
+  overflow-x: auto; 
+}
+.toolbar::-webkit-scrollbar { display: none; }
+
+.tb-group { display: flex; align-items: center; gap: 1px; padding: 0 4px; flex-shrink: 0; }
+.tb-group.sep { border-right: 1px solid var(--border); margin-right: 4px; padding-right: 8px; }
+.tb-spacer { flex: 1; min-width: 8px; }
+
+.tb-btn { 
+  background: transparent; 
+  border: none; 
+  color: var(--text-300); 
+  width: 32px; 
+  height: 32px; 
+  border-radius: 6px; 
+  cursor: pointer; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  font-size: 14px; 
+  transition: all 0.1s; 
+}
+.tb-btn:hover { background: var(--bg-700); color: var(--text-100); }
+.tb-btn.active { background: var(--accent); color: white; }
+
+.tb-val { font-size: 10px; color: var(--text-300); min-width: 32px; text-align: center; }
+
+.badge { font-size: 9px; padding: 2px 6px; border-radius: 3px; font-weight: 600; text-transform: uppercase; }
+.badge.tw { background: rgba(6,182,212,0.2); color: #22d3ee; }
+.badge.css { background: rgba(168,85,247,0.2); color: #c084fc; }
+
+.status { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-300); padding: 0 6px; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+.status.saving .status-dot { background: var(--warning); }
+.status.error .status-dot { background: var(--error); }
+
+/* Canvas */
+.canvas-wrap { background: var(--bg-900); overflow: auto; position: relative; }
+.canvas { min-height: 100%; display: flex; justify-content: center; align-items: center; padding: 40px; }
+.canvas[data-bg="dark"] { background: #18181b; }
+.canvas[data-bg="light"] { background: #fff; }
+.canvas[data-bg="grid"] { 
+  background-color: #18181b; 
+  background-image: linear-gradient(45deg,#222 25%,transparent 25%),linear-gradient(-45deg,#222 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#222 75%),linear-gradient(-45deg,transparent 75%,#222 75%); 
+  background-size: 16px 16px; 
+  background-position: 0 0,0 8px,8px -8px,-8px 0; 
+}
+#component-root { transform-origin: center; }
+
+.highlight { position: fixed; pointer-events: none; border: 2px solid var(--accent); background: rgba(59,130,246,0.1); z-index: 9999; display: none; }
+.highlight-label { position: absolute; top: -20px; left: -2px; background: var(--accent); color: #fff; font-size: 9px; padding: 2px 6px; border-radius: 3px; white-space: nowrap; }
+
+/* Panel */
+.panel { background: var(--bg-800); border-left: 1px solid var(--border); overflow-y: auto; display: none; flex-direction: column; }
+.layout.panel-open .panel { display: flex; }
+
+.panel-head { 
+  padding: 10px 12px; 
+  border-bottom: 1px solid var(--border); 
+  display: flex; 
+  align-items: center; 
+  justify-content: space-between; 
+  position: sticky; 
+  top: 0; 
+  background: var(--bg-800); 
+  z-index: 10; 
+}
+.panel-title { font-weight: 600; font-size: 11px; display: flex; align-items: center; gap: 6px; }
+.el-tag { background: var(--bg-700); padding: 2px 6px; border-radius: 3px; color: var(--accent); font-size: 10px; }
+.el-class { font-size: 9px; color: var(--text-300); margin-top: 2px; }
+.panel-close { background: transparent; border: none; color: var(--text-300); cursor: pointer; padding: 4px; border-radius: 4px; font-size: 14px; }
+.panel-close:hover { background: var(--bg-700); }
+
+.panel-section { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.section-head { 
+  font-size: 9px; 
+  font-weight: 600; 
+  color: var(--text-300); 
+  text-transform: uppercase; 
+  letter-spacing: 0.5px; 
+  margin-bottom: 8px; 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+}
+
+.row { display: flex; align-items: center; margin-bottom: 6px; gap: 6px; }
+.row:last-child { margin-bottom: 0; }
+.row-label { width: 50px; font-size: 10px; color: var(--text-300); flex-shrink: 0; }
+
+.input { 
+  flex: 1; 
+  background: var(--bg-700); 
+  border: 1px solid var(--border); 
+  border-radius: 4px; 
+  padding: 5px 8px; 
+  color: var(--text-100); 
+  font-size: 10px; 
+  font-family: monospace; 
+}
+.input:focus { outline: none; border-color: var(--accent); }
+.input.has-value { border-color: var(--accent); background: rgba(59,130,246,0.1); }
+.input::placeholder { color: var(--text-300); font-style: italic; }
+
+.input-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 3px; flex: 1; }
+.input-sm { 
+  background: var(--bg-700); 
+  border: 1px solid var(--border); 
+  border-radius: 3px; 
+  padding: 4px; 
+  color: var(--text-100); 
+  font-size: 9px; 
+  text-align: center; 
+  font-family: monospace; 
+  width: 100%; 
+}
+.input-sm:focus { outline: none; border-color: var(--accent); }
+.input-sm.has-value { border-color: var(--accent); background: rgba(59,130,246,0.1); }
+
+.btn-row { display: flex; background: var(--bg-700); border-radius: 4px; padding: 2px; flex: 1; }
+.btn-row button { flex: 1; background: transparent; border: none; padding: 4px 2px; color: var(--text-300); font-size: 9px; cursor: pointer; border-radius: 3px; }
+.btn-row button:hover { color: var(--text-100); }
+.btn-row button.active { background: var(--bg-600); color: var(--text-100); }
+
+.color-row { display: flex; gap: 4px; flex: 1; align-items: center; }
+.color-swatch { width: 24px; height: 24px; border-radius: 4px; border: 1px solid var(--border); cursor: pointer; padding: 0; flex-shrink: 0; }
+.color-clear { background: var(--bg-700); border: 1px solid var(--border); color: var(--text-300); width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 10px; flex-shrink: 0; }
+.color-clear:hover { background: var(--bg-600); color: var(--text-100); }
+
+.save-row { display: flex; gap: 4px; }
+.save-btn { background: var(--accent); border: none; color: #fff; padding: 3px 8px; border-radius: 3px; font-size: 9px; font-weight: 600; cursor: pointer; }
+.save-btn:hover { filter: brightness(1.1); }
+.save-btn.sec { background: var(--bg-600); color: var(--text-200); }
+.save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.no-sel { padding: 40px 16px; text-align: center; color: var(--text-300); }
+.no-sel-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.4; }
+.no-sel-text { font-size: 11px; line-height: 1.5; }
+
+.add-class-row { background: var(--bg-700); border-radius: 4px; padding: 8px; margin-top: 8px; }
+.add-class-row input { width: 100%; margin-bottom: 6px; }
+
+.tw-area { 
+  width: 100%; 
+  min-height: 50px; 
+  background: var(--bg-700); 
+  border: 1px solid var(--border); 
+  border-radius: 4px; 
+  padding: 8px; 
+  color: var(--text-100); 
+  font-size: 10px; 
+  font-family: monospace; 
+  resize: vertical; 
+  line-height: 1.4; 
+}
+.tw-area:focus { outline: none; border-color: var(--accent); }
+
+.info-text { font-size: 9px; color: var(--text-300); margin-top: 6px; font-style: italic; }
+</style>
+</head>
+<body>
+<div class="layout" id="layout">
+  <div class="toolbar">
+    <div class="tb-group sep">
+      <button class="tb-btn" id="zoom-out" title="Zoom Out">−</button>
+      <span class="tb-val" id="zoom-val">100%</span>
+      <button class="tb-btn" id="zoom-in" title="Zoom In">+</button>
+      <button class="tb-btn" id="zoom-fit" title="Fit">⊡</button>
+    </div>
+    <div class="tb-group sep">
+      <button class="tb-btn active" id="bg-dark" title="Dark">◼</button>
+      <button class="tb-btn" id="bg-light" title="Light">◻</button>
+      <button class="tb-btn" id="bg-grid" title="Grid">▦</button>
+    </div>
+    <div class="tb-group sep">
+      <button class="tb-btn active" id="inspect" title="Inspect">🎯</button>
+    </div>
+    <div class="tb-spacer"></div>
+    <div class="tb-group">
+      
+      
+      <span class="badge css">CSS</span>
+    </div>
+    <div class="tb-group sep">
+      <button class="tb-btn" id="refresh" title="Refresh">↻</button>
+    </div>
+    <div class="tb-group">
+      <button class="tb-btn" id="toggle-panel" title="Panel">◧</button>
+    </div>
+    <div class="status" id="status">
+      <span class="status-dot"></span>
+      <span id="status-txt">Ready</span>
+    </div>
+  </div>
+  
+  <div class="canvas-wrap">
+    <div class="canvas" id="canvas" data-bg="dark">
+      <div id="component-root"></div>
+    </div>
+    <div class="highlight" id="highlight"><span class="highlight-label" id="hl-label"></span></div>
+  </div>
+  
+  <div class="panel" id="panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Inspector <span class="el-tag" id="el-tag">—</span></div>
+        <div class="el-class" id="el-class"></div>
+      </div>
+      <button class="panel-close" id="panel-close">✕</button>
+    </div>
+    
+    <div id="no-sel" class="no-sel">
+      <div class="no-sel-icon">🎯</div>
+      <div class="no-sel-text">Click an element to inspect</div>
+    </div>
+    
+    <div id="controls" style="display:none;">
+      <!-- Add Class Section -->
+      <div class="panel-section" id="add-class-section" style="display:none;">
+        <div class="section-head">Add Class</div>
+        <div class="add-class-row">
+          <input type="text" class="input" id="new-class-name" placeholder="Enter class name...">
+          <button class="save-btn" id="add-class-btn" style="width:100%;margin-top:6px;">Add Class</button>
+        </div>
+      </div>
+      
+      
+      
+      <!-- CSS Controls -->
+      <div id="css-section">
+        <div class="panel-section">
+          <div class="section-head">
+            Layout
+            <div class="save-row">
+              <button class="save-btn" id="save-style" title="Save to &lt;style&gt;">⟨/⟩</button>
+              <button class="save-btn" id="save-css" title="Save to CSS file" disabled>Save</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label">Display</span>
+            <div class="btn-row" id="display-btns">
+              <button data-v="block">Blk</button>
+              <button data-v="flex">Flx</button>
+              <button data-v="grid">Grd</button>
+              <button data-v="inline">Inl</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label">Flex Dir</span>
+            <div class="btn-row" id="flex-dir-btns">
+              <button data-v="row">Row</button>
+              <button data-v="column">Col</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label">Justify</span>
+            <div class="btn-row" id="justify-btns">
+              <button data-v="flex-start">⇤</button>
+              <button data-v="center">⇔</button>
+              <button data-v="flex-end">⇥</button>
+              <button data-v="space-between">⇹</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label">Align</span>
+            <div class="btn-row" id="align-btns">
+              <button data-v="flex-start">⇤</button>
+              <button data-v="center">⇔</button>
+              <button data-v="flex-end">⇥</button>
+              <button data-v="stretch">⇹</button>
+            </div>
+          </div>
+          <p class="info-text">Blue highlight = value from CSS file</p>
+        </div>
+        
+        <!-- Spacing -->
+        <div class="panel-section">
+          <div class="section-head">Spacing</div>
+          <div class="row">
+            <span class="row-label">Pad</span>
+            <div class="input-grid">
+              <input type="text" class="input-sm" data-prop="paddingTop" placeholder="T">
+              <input type="text" class="input-sm" data-prop="paddingRight" placeholder="R">
+              <input type="text" class="input-sm" data-prop="paddingBottom" placeholder="B">
+              <input type="text" class="input-sm" data-prop="paddingLeft" placeholder="L">
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label">Margin</span>
+            <div class="input-grid">
+              <input type="text" class="input-sm" data-prop="marginTop" placeholder="T">
+              <input type="text" class="input-sm" data-prop="marginRight" placeholder="R">
+              <input type="text" class="input-sm" data-prop="marginBottom" placeholder="B">
+              <input type="text" class="input-sm" data-prop="marginLeft" placeholder="L">
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label">Gap</span>
+            <input type="text" class="input" data-prop="gap" placeholder="">
+          </div>
+        </div>
+        
+        <!-- Size -->
+        <div class="panel-section">
+          <div class="section-head">Size</div>
+          <div class="row">
+            <span class="row-label">Width</span>
+            <input type="text" class="input" data-prop="width" placeholder="">
+          </div>
+          <div class="row">
+            <span class="row-label">Height</span>
+            <input type="text" class="input" data-prop="height" placeholder="">
+          </div>
+        </div>
+        
+        <!-- Typography -->
+        <div class="panel-section">
+          <div class="section-head">Type</div>
+          <div class="row">
+            <span class="row-label">Size</span>
+            <input type="text" class="input" data-prop="fontSize" placeholder="">
+          </div>
+          <div class="row">
+            <span class="row-label">Weight</span>
+            <div class="btn-row" id="font-weight-btns">
+              <button data-v="400">4</button>
+              <button data-v="500">5</button>
+              <button data-v="600">6</button>
+              <button data-v="700">7</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label">Color</span>
+            <div class="color-row">
+              <input type="color" class="color-swatch" id="color-pick" value="#ffffff">
+              <input type="text" class="input" data-prop="color" id="color" placeholder="">
+              <button class="color-clear" id="color-clear">✕</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Background -->
+        <div class="panel-section">
+          <div class="section-head">Background</div>
+          <div class="row">
+            <span class="row-label">Color</span>
+            <div class="color-row">
+              <input type="color" class="color-swatch" id="bg-pick" value="#000000">
+              <input type="text" class="input" data-prop="backgroundColor" id="bg-color" placeholder="">
+              <button class="color-clear" id="bg-clear">✕</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Border -->
+        <div class="panel-section">
+          <div class="section-head">Border</div>
+          <div class="row">
+            <span class="row-label">Radius</span>
+            <input type="text" class="input" data-prop="borderRadius" placeholder="">
+          </div>
+          <div class="row">
+            <span class="row-label">Width</span>
+            <input type="text" class="input" data-prop="borderWidth" placeholder="">
+          </div>
+          <div class="row">
+            <span class="row-label">Color</span>
+            <div class="color-row">
+              <input type="color" class="color-swatch" id="border-pick" value="#000000">
+              <input type="text" class="input" data-prop="borderColor" id="border-color" placeholder="">
+              <button class="color-clear" id="border-clear">✕</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label">Style</span>
+            <div class="btn-row" id="border-style-btns">
+              <button data-v="none">None</button>
+              <button data-v="solid">Solid</button>
+              <button data-v="dashed">Dash</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./entry.js"></script>
+<script type="module">
+// Inspector state
+let zoom = 100;
+let selectedEl = null;
+let selectedClass = null;
+let origClasses = '';
+let inspectOn = true;
+let existingStyles = {};  // Styles from CSS file
+let modifiedStyles = {};  // Only styles user has changed
+
+const $ = id => document.getElementById(id);
+
+// Initialize
+export function initInspector(apiUrl, hasTailwind) {
+  const layout = $('layout');
+  const canvas = $('canvas');
+  const root = $('component-root');
+  const hl = $('highlight');
+  const hlLabel = $('hl-label');
+  
+  // Zoom
+  const setZoom = v => { 
+    zoom = Math.max(25, Math.min(400, v)); 
+    root.style.transform = `scale(${zoom/100})`; 
+    $('zoom-val').textContent = zoom+'%'; 
+  };
+  $('zoom-in').onclick = () => setZoom(zoom + 25);
+  $('zoom-out').onclick = () => setZoom(zoom - 25);
+  $('zoom-fit').onclick = () => setZoom(100);
+  
+  // Background
+  const setBg = m => { 
+    canvas.dataset.bg = m; 
+    ['dark','light','grid'].forEach(x => $('bg-'+x).classList.toggle('active', x===m)); 
+  };
+  $('bg-dark').onclick = () => setBg('dark');
+  $('bg-light').onclick = () => setBg('light');
+  $('bg-grid').onclick = () => setBg('grid');
+  
+  // Panel & inspect
+  $('refresh').onclick = () => location.reload();
+  $('toggle-panel').onclick = e => { 
+    layout.classList.toggle('panel-open'); 
+    e.target.classList.toggle('active'); 
+  };
+  $('panel-close').onclick = () => { 
+    layout.classList.remove('panel-open'); 
+    $('toggle-panel').classList.remove('active'); 
+  };
+  $('inspect').onclick = e => { 
+    inspectOn = !inspectOn; 
+    e.target.classList.toggle('active', inspectOn); 
+    if (!inspectOn) hl.style.display = 'none'; 
+  };
+  
+  // Highlight
+  const updateHl = el => {
+    if (!el || !inspectOn) { hl.style.display = 'none'; return; }
+    const r = el.getBoundingClientRect();
+    Object.assign(hl.style, { display: 'block', left: r.left+'px', top: r.top+'px', width: r.width+'px', height: r.height+'px' });
+    const cls = el.className && typeof el.className === 'string' ? '.'+el.className.split(' ').filter(c=>c).slice(0,2).join('.') : '';
+    hlLabel.textContent = el.tagName.toLowerCase() + cls;
+  };
+  
+  // Fetch existing styles from CSS file
+  async function fetchExistingStyles(className) {
+    try {
+      const res = await fetch(`${apiUrl}/get-styles?class=${className}`);
+      const data = await res.json();
+      return data.styles || {};
+    } catch {
+      return {};
+    }
+  }
+  
+  // Select element
+  async function selectEl(el) {
+    selectedEl = el;
+    modifiedStyles = {};
+    
+    if (!el) {
+      $('el-tag').textContent = '—';
+      $('el-class').textContent = '';
+      $('no-sel').style.display = 'block';
+      $('controls').style.display = 'none';
+      return;
+    }
+    
+    const tag = el.tagName.toLowerCase();
+    const classes = (el.className && typeof el.className === 'string') ? el.className.trim() : '';
+    selectedClass = classes.split(' ')[0] || null;
+    origClasses = classes;
+    
+    $('el-tag').textContent = tag;
+    $('el-class').textContent = classes ? '.' + classes.replace(/\s+/g, ' .') : '(no class)';
+    $('no-sel').style.display = 'none';
+    $('controls').style.display = 'block';
+    
+    // Show add class section if no class
+    $('add-class-section').style.display = selectedClass ? 'none' : 'block';
+    $('css-section').style.display = selectedClass ? 'block' : 'none';
+    
+    // Tailwind
+    if (hasTailwind && $('tw-classes')) $('tw-classes').value = classes;
+    
+    // Fetch EXISTING styles from CSS file (not computed)
+    existingStyles = selectedClass ? await fetchExistingStyles(selectedClass) : {};
+    console.log('Existing CSS styles:', existingStyles);
+    
+    // Populate inputs with existing CSS values (not computed)
+    populateInputs(existingStyles);
+  }
+  
+  // Populate inputs with CSS file values only
+  function populateInputs(styles) {
+    // Clear all inputs first
+    document.querySelectorAll('[data-prop]').forEach(inp => {
+      inp.value = '';
+      inp.classList.remove('has-value');
+      inp.placeholder = getComputedPlaceholder(inp.dataset.prop);
+    });
+    
+    // Clear button states
+    document.querySelectorAll('.btn-row button').forEach(b => b.classList.remove('active'));
+    
+    // Set values from CSS file
+    Object.entries(styles).forEach(([prop, value]) => {
+      const inp = document.querySelector(`[data-prop="${prop}"]`);
+      if (inp) {
+        inp.value = value;
+        inp.classList.add('has-value');
+      }
+      
+      // Handle button groups
+      const btnGroup = document.querySelector(`#${prop}-btns`);
+      if (btnGroup) {
+        const btn = btnGroup.querySelector(`[data-v="${value}"]`);
+        if (btn) btn.classList.add('active');
+      }
+    });
+  }
+  
+  // Get computed value as placeholder
+  function getComputedPlaceholder(prop) {
+    if (!selectedEl) return '';
+    const cs = getComputedStyle(selectedEl);
+    const val = cs[prop];
+    // Simplify for display
+    if (val && val.startsWith('rgb')) {
+      return val;
+    }
+    if (val && val.endsWith('px')) {
+      const num = parseFloat(val);
+      return Number.isInteger(num) ? num + 'px' : Math.round(num) + 'px';
+    }
+    return val || '';
+  }
+  
+  // Apply style live (preview only)
+  function applyStyle(prop, value) {
+    if (!selectedEl) return;
+    selectedEl.style[prop] = value;
+    modifiedStyles[prop] = value;
+    
+    // Mark input as having a value
+    const inp = document.querySelector(`[data-prop="${prop}"]`);
+    if (inp) inp.classList.toggle('has-value', !!value);
+    
+    updateSaveButton();
+  }
+  
+  // Update save button state
+  function updateSaveButton() {
+    const hasChanges = Object.keys(modifiedStyles).length > 0;
+    const saveBtn = $('save-css');
+    if (saveBtn) {
+      saveBtn.disabled = !hasChanges || !selectedClass;
+      saveBtn.textContent = hasChanges ? `Save (${Object.keys(modifiedStyles).length})` : 'Save';
+    }
+  }
+  
+  // Status
+  const setStatus = (type, txt) => { 
+    $('status').className = 'status ' + type; 
+    $('status-txt').textContent = txt; 
+  };
+  
+  // Save ONLY modified styles to CSS file
+  async function saveToCss() {
+    if (!selectedClass || !Object.keys(modifiedStyles).length) return;
+    
+    setStatus('saving', 'Saving...');
+    
+    // Merge existing with modified
+    const stylesToSave = { ...existingStyles, ...modifiedStyles };
+    
+    try {
+      const res = await fetch(`${apiUrl}/update-css`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ className: selectedClass, styles: stylesToSave })
+      });
+      
+      if (res.ok) {
+        setStatus('', 'Saved!');
+        existingStyles = stylesToSave;
+        modifiedStyles = {};
+        updateSaveButton();
+        setTimeout(() => setStatus('', 'Ready'), 1500);
+      } else {
+        const e = await res.json();
+        setStatus('error', e.error);
+      }
+    } catch {
+      setStatus('error', 'Save failed');
+    }
+  }
+  
+  // Save to component <style>
+  async function saveToStyle() {
+    if (!selectedClass || !Object.keys(modifiedStyles).length) return;
+    
+    setStatus('saving', 'Saving...');
+    const stylesToSave = { ...existingStyles, ...modifiedStyles };
+    
+    try {
+      const res = await fetch(`${apiUrl}/update-component-style`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ className: selectedClass, styles: stylesToSave })
+      });
+      
+      if (res.ok) {
+        setStatus('', 'Saved!');
+        existingStyles = stylesToSave;
+        modifiedStyles = {};
+        updateSaveButton();
+        setTimeout(() => setStatus('', 'Ready'), 1500);
+      } else {
+        const e = await res.json();
+        setStatus('error', e.error);
+      }
+    } catch {
+      setStatus('error', 'Save failed');
+    }
+  }
+  
+  // Save Tailwind
+  async function saveTw() {
+    if (!selectedEl) return;
+    const newCls = $('tw-classes').value.trim();
+    
+    setStatus('saving', 'Saving...');
+    try {
+      const res = await fetch(`${apiUrl}/update-tailwind`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldClasses: origClasses, newClasses: newCls })
+      });
+      
+      if (res.ok) {
+        setStatus('', 'Saved!');
+        selectedEl.className = newCls;
+        origClasses = newCls;
+        setTimeout(() => setStatus('', 'Ready'), 1500);
+      } else {
+        const e = await res.json();
+        setStatus('error', e.error);
+      }
+    } catch {
+      setStatus('error', 'Save failed');
+    }
+  }
+  
+  // Add class
+  async function addClass() {
+    if (!selectedEl) return;
+    const newCls = $('new-class-name').value.trim();
+    if (!newCls) return;
+    
+    setStatus('saving', 'Adding...');
+    try {
+      const res = await fetch(`${apiUrl}/add-class`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          tagName: selectedEl.tagName.toLowerCase(), 
+          newClassName: newCls 
+        })
+      });
+      
+      if (res.ok) {
+        selectedEl.classList.add(newCls);
+        setStatus('', 'Added!');
+        $('new-class-name').value = '';
+        selectEl(selectedEl);
+        setTimeout(() => setStatus('', 'Ready'), 1500);
+      } else {
+        const e = await res.json();
+        setStatus('error', e.error);
+      }
+    } catch {
+      setStatus('error', 'Failed');
+    }
+  }
+  
+  // Events
+  root.addEventListener('mousemove', e => {
+    if (!inspectOn) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (el && root.contains(el) && el !== root) updateHl(el);
+  });
+  
+  root.addEventListener('mouseleave', () => { 
+    if (!selectedEl) hl.style.display = 'none'; 
+  });
+  
+  root.addEventListener('click', e => {
+    if (!inspectOn) return;
+    e.preventDefault(); 
+    e.stopPropagation();
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (el && root.contains(el) && el !== root) { 
+      selectEl(el); 
+      updateHl(el);
+      layout.classList.add('panel-open');
+      $('toggle-panel').classList.add('active');
+    }
+  });
+  
+  // Wire up inputs
+  document.querySelectorAll('[data-prop]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      let v = inp.value;
+      if (v && /^\d+$/.test(v) && !inp.dataset.prop.includes('olor')) v += 'px';
+      applyStyle(inp.dataset.prop, v);
+    });
+  });
+  
+  // Button groups
+  document.querySelectorAll('.btn-row button[data-v]').forEach(btn => {
+    btn.onclick = () => {
+      const prop = btn.closest('.btn-row').id.replace('-btns', '');
+      const propMap = {
+        'display': 'display',
+        'flex-dir': 'flexDirection',
+        'justify': 'justifyContent',
+        'align': 'alignItems',
+        'font-weight': 'fontWeight',
+        'border-style': 'borderStyle'
+      };
+      const cssProp = propMap[prop] || prop;
+      applyStyle(cssProp, btn.dataset.v);
+      btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    };
+  });
+  
+  // Color pickers
+  $('color-pick').oninput = e => { $('color').value = e.target.value; applyStyle('color', e.target.value); };
+  $('bg-pick').oninput = e => { $('bg-color').value = e.target.value; applyStyle('backgroundColor', e.target.value); };
+  $('border-pick').oninput = e => { $('border-color').value = e.target.value; applyStyle('borderColor', e.target.value); };
+  
+  // Clear buttons
+  $('color-clear').onclick = () => { $('color').value = ''; applyStyle('color', ''); };
+  $('bg-clear').onclick = () => { $('bg-color').value = ''; applyStyle('backgroundColor', ''); };
+  $('border-clear').onclick = () => { $('border-color').value = ''; applyStyle('borderColor', ''); };
+  
+  // Save buttons
+  if ($('save-css')) $('save-css').onclick = saveToCss;
+  if ($('save-style')) $('save-style').onclick = saveToStyle;
+  if ($('save-tw')) $('save-tw').onclick = saveTw;
+  if ($('add-class-btn')) $('add-class-btn').onclick = addClass;
+  
+  // Tailwind live preview
+  if ($('tw-classes')) {
+    $('tw-classes').oninput = () => { 
+      if (selectedEl) selectedEl.className = $('tw-classes').value; 
+    };
+  }
+  
+  // Error handling
+  window.onerror = (msg, src, line, col, err) => {
+    root.innerHTML = `<div style="color:#fca5a5;padding:20px;font-family:monospace;font-size:12px;">${err?.stack || msg}</div>`;
+  };
+}
+
+
+initInspector('http://localhost:5790', false);
+</script>
+</body>
+</html>
