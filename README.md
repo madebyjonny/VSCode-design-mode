@@ -28,7 +28,7 @@ cd viewer && npm install && cd ..
 # 3. Compile
 npm run compile
 
-# 4. Press F5 to test
+# 4. Press F5 to test or run from the repo code --extensionDevelopmentPath=$(pwd) ../my-react/vue-app
 ```
 
 ## Usage
