@@ -4,13 +4,95 @@ let selectedEl = null;
 let selectedClass = null;
 let origClasses = '';
 let inspectOn = true;
-let existingStyles = {};  // Styles from CSS file
-let modifiedStyles = {};  // Only styles user has changed
+let existingStyles = {};
+let modifiedStyles = {};
+let designTokens = null;
 
 const $ = id => document.getElementById(id);
 
+// Check for token violations
+function checkViolations(styles) {
+  if (!designTokens) return [];
+  const violations = [];
+  
+  const checkAgainstTokens = (prop, value, tokenSet, tokenName) => {
+    if (!value || !tokenSet) return;
+    const tokenValues = Object.values(tokenSet);
+    const normalized = value.replace(/\s/g, '');
+    if (!tokenValues.some(v => String(v).replace(/\s/g, '') === normalized)) {
+      let suggestion = null;
+      const numVal = parseFloat(value);
+      if (!isNaN(numVal)) {
+        let minDiff = Infinity;
+        for (const [name, val] of Object.entries(tokenSet)) {
+          const diff = Math.abs(parseFloat(val) - numVal);
+          if (diff < minDiff) { minDiff = diff; suggestion = { name, value: val }; }
+        }
+      }
+      violations.push({ prop, value, tokenName, suggestion });
+    }
+  };
+  
+  if (designTokens.spacing) {
+    ['paddingTop','paddingRight','paddingBottom','paddingLeft','marginTop','marginRight','marginBottom','marginLeft','gap'].forEach(p => {
+      if (styles[p]) checkAgainstTokens(p, styles[p], designTokens.spacing, 'spacing');
+    });
+  }
+  if (designTokens.typography?.fontSize && styles.fontSize) {
+    checkAgainstTokens('fontSize', styles.fontSize, designTokens.typography.fontSize, 'fontSize');
+  }
+  if (designTokens.borderRadius && styles.borderRadius) {
+    checkAgainstTokens('borderRadius', styles.borderRadius, designTokens.borderRadius, 'borderRadius');
+  }
+  if (designTokens.colors) {
+    // Flatten colors for checking
+    const flatColors = {};
+    for (const [name, val] of Object.entries(designTokens.colors)) {
+      if (typeof val === 'string') flatColors[name] = val;
+      else for (const [shade, color] of Object.entries(val)) flatColors[`${name}-${shade}`] = color;
+    }
+    ['color', 'backgroundColor', 'borderColor'].forEach(p => {
+      if (styles[p]) checkAgainstTokens(p, styles[p], flatColors, 'colors');
+    });
+  }
+  return violations;
+}
+
+function showViolations(violations, applyStyleFn) {
+  const container = $('violations');
+  const list = $('violations-list');
+  if (!container || !list) return;
+  
+  if (violations.length === 0) { container.style.display = 'none'; return; }
+  
+  container.style.display = 'block';
+  list.innerHTML = violations.map(v => {
+    const fix = v.suggestion ? `<span class="violation-fix" data-prop="${v.prop}" data-value="${v.suggestion.value}">→ ${v.suggestion.name}</span>` : '';
+    return `<div class="violation"><span class="violation-prop">${v.prop}: ${v.value}</span>${fix}</div>`;
+  }).join('');
+  
+  list.querySelectorAll('.violation-fix').forEach(el => {
+    el.onclick = () => {
+      applyStyleFn(el.dataset.prop, el.dataset.value);
+      const inp = document.querySelector(`[data-prop="${el.dataset.prop}"]`);
+      if (inp) {
+        if (inp.tagName === 'SELECT') {
+          for (let i = 0; i < inp.options.length; i++) {
+            if (inp.options[i].dataset.value === el.dataset.value) { inp.selectedIndex = i; break; }
+          }
+        } else {
+          inp.value = el.dataset.value;
+        }
+        inp.classList.add('has-value');
+      }
+    };
+  });
+}
+
 // Initialize
-export function initInspector(apiUrl, hasTailwind) {
+export function initInspector(apiUrl, hasTailwind, tokens, hasColorTokens) {
+  designTokens = tokens && Object.keys(tokens).length > 0 ? tokens : null;
+  
   const layout = $('layout');
   const canvas = $('canvas');
   const root = $('component-root');
@@ -25,30 +107,36 @@ export function initInspector(apiUrl, hasTailwind) {
   };
   $('zoom-in').onclick = () => setZoom(zoom + 25);
   $('zoom-out').onclick = () => setZoom(zoom - 25);
-  $('zoom-fit').onclick = () => setZoom(100);
+  if ($('zoom-fit')) $('zoom-fit').onclick = () => setZoom(100);
   
   // Background
   const setBg = m => { 
     canvas.dataset.bg = m; 
-    ['dark','light','grid'].forEach(x => $('bg-'+x).classList.toggle('active', x===m)); 
+    ['dark','light','grid'].forEach(x => {
+      const el = $('bg-'+x);
+      if (el) el.classList.toggle('active', x===m);
+    }); 
   };
-  $('bg-dark').onclick = () => setBg('dark');
-  $('bg-light').onclick = () => setBg('light');
-  $('bg-grid').onclick = () => setBg('grid');
+  if ($('bg-dark')) $('bg-dark').onclick = () => setBg('dark');
+  if ($('bg-light')) $('bg-light').onclick = () => setBg('light');
+  if ($('bg-grid')) $('bg-grid').onclick = () => setBg('grid');
   
   // Panel & inspect
-  $('refresh').onclick = () => location.reload();
-  $('toggle-panel').onclick = e => { 
+  if ($('refresh')) $('refresh').onclick = () => location.reload();
+  if ($('toggle-panel')) $('toggle-panel').onclick = e => { 
     layout.classList.toggle('panel-open'); 
-    e.target.classList.toggle('active'); 
+    const btn = e.target.closest('.tb-btn') || e.target;
+    btn.classList.toggle('active'); 
   };
-  $('panel-close').onclick = () => { 
+  if ($('panel-close')) $('panel-close').onclick = () => { 
     layout.classList.remove('panel-open'); 
-    $('toggle-panel').classList.remove('active'); 
+    const btn = $('toggle-panel');
+    if (btn) btn.classList.remove('active'); 
   };
-  $('inspect').onclick = e => { 
+  if ($('inspect')) $('inspect').onclick = e => { 
     inspectOn = !inspectOn; 
-    e.target.classList.toggle('active', inspectOn); 
+    const btn = e.target.closest('.tb-btn') || e.target;
+    btn.classList.toggle('active', inspectOn); 
     if (!inspectOn) hl.style.display = 'none'; 
   };
   
@@ -96,8 +184,8 @@ export function initInspector(apiUrl, hasTailwind) {
     $('controls').style.display = 'block';
     
     // Show add class section if no class
-    $('add-class-section').style.display = selectedClass ? 'none' : 'block';
-    $('css-section').style.display = selectedClass ? 'block' : 'none';
+    if ($('add-class-section')) $('add-class-section').style.display = selectedClass ? 'none' : 'block';
+    if ($('css-section')) $('css-section').style.display = selectedClass ? 'block' : 'none';
     
     // Tailwind
     if (hasTailwind && $('tw-classes')) $('tw-classes').value = classes;
@@ -108,15 +196,25 @@ export function initInspector(apiUrl, hasTailwind) {
     
     // Populate inputs with existing CSS values (not computed)
     populateInputs(existingStyles);
+    
+    // Check for token violations
+    if (designTokens) {
+      const violations = checkViolations(existingStyles);
+      showViolations(violations, applyStyle);
+    }
   }
   
   // Populate inputs with CSS file values only
   function populateInputs(styles) {
     // Clear all inputs first
     document.querySelectorAll('[data-prop]').forEach(inp => {
-      inp.value = '';
+      if (inp.tagName === 'SELECT') {
+        inp.selectedIndex = 0;
+      } else {
+        inp.value = '';
+        inp.placeholder = getComputedPlaceholder(inp.dataset.prop);
+      }
       inp.classList.remove('has-value');
-      inp.placeholder = getComputedPlaceholder(inp.dataset.prop);
     });
     
     // Clear button states
@@ -126,7 +224,17 @@ export function initInspector(apiUrl, hasTailwind) {
     Object.entries(styles).forEach(([prop, value]) => {
       const inp = document.querySelector(`[data-prop="${prop}"]`);
       if (inp) {
-        inp.value = value;
+        if (inp.tagName === 'SELECT') {
+          // Find option with matching data-value
+          for (let i = 0; i < inp.options.length; i++) {
+            if (inp.options[i].dataset.value === value) {
+              inp.selectedIndex = i;
+              break;
+            }
+          }
+        } else {
+          inp.value = value;
+        }
         inp.classList.add('has-value');
       }
       
@@ -166,6 +274,13 @@ export function initInspector(apiUrl, hasTailwind) {
     if (inp) inp.classList.toggle('has-value', !!value);
     
     updateSaveButton();
+    
+    // Re-check violations
+    if (designTokens) {
+      const allStyles = { ...existingStyles, ...modifiedStyles };
+      const violations = checkViolations(allStyles);
+      showViolations(violations, applyStyle);
+    }
   }
   
   // Update save button state
@@ -247,7 +362,9 @@ export function initInspector(apiUrl, hasTailwind) {
   // Save Tailwind
   async function saveTw() {
     if (!selectedEl) return;
-    const newCls = $('tw-classes').value.trim();
+    const twInput = $('tw-classes');
+    if (!twInput) return;
+    const newCls = twInput.value.trim();
     
     setStatus('saving', 'Saving...');
     try {
@@ -274,7 +391,9 @@ export function initInspector(apiUrl, hasTailwind) {
   // Add class
   async function addClass() {
     if (!selectedEl) return;
-    const newCls = $('new-class-name').value.trim();
+    const nameInput = $('new-class-name');
+    if (!nameInput) return;
+    const newCls = nameInput.value.trim();
     if (!newCls) return;
     
     setStatus('saving', 'Adding...');
@@ -291,7 +410,7 @@ export function initInspector(apiUrl, hasTailwind) {
       if (res.ok) {
         selectedEl.classList.add(newCls);
         setStatus('', 'Added!');
-        $('new-class-name').value = '';
+        nameInput.value = '';
         selectEl(selectedEl);
         setTimeout(() => setStatus('', 'Ready'), 1500);
       } else {
@@ -323,17 +442,26 @@ export function initInspector(apiUrl, hasTailwind) {
       selectEl(el); 
       updateHl(el);
       layout.classList.add('panel-open');
-      $('toggle-panel').classList.add('active');
+      const toggleBtn = $('toggle-panel');
+      if (toggleBtn) toggleBtn.classList.add('active');
     }
   });
   
-  // Wire up inputs
+  // Wire up inputs - handle both regular inputs and token selects
   document.querySelectorAll('[data-prop]').forEach(inp => {
-    inp.addEventListener('input', () => {
-      let v = inp.value;
-      if (v && /^\d+$/.test(v) && !inp.dataset.prop.includes('olor')) v += 'px';
-      applyStyle(inp.dataset.prop, v);
-    });
+    if (inp.tagName === 'SELECT') {
+      inp.addEventListener('change', () => {
+        const opt = inp.options[inp.selectedIndex];
+        const value = opt && opt.dataset.value ? opt.dataset.value : '';
+        applyStyle(inp.dataset.prop, value);
+      });
+    } else {
+      inp.addEventListener('input', () => {
+        let v = inp.value;
+        if (v && /^\d+$/.test(v) && !inp.dataset.prop.includes('olor')) v += 'px';
+        applyStyle(inp.dataset.prop, v);
+      });
+    }
   });
   
   // Button groups
@@ -355,15 +483,23 @@ export function initInspector(apiUrl, hasTailwind) {
     };
   });
   
-  // Color pickers
-  $('color-pick').oninput = e => { $('color').value = e.target.value; applyStyle('color', e.target.value); };
-  $('bg-pick').oninput = e => { $('bg-color').value = e.target.value; applyStyle('backgroundColor', e.target.value); };
-  $('border-pick').oninput = e => { $('border-color').value = e.target.value; applyStyle('borderColor', e.target.value); };
+  // Color pickers (only exist when not using color tokens)
+  const colorPick = $('color-pick');
+  const bgPick = $('bg-pick');
+  const borderPick = $('border-pick');
+  
+  if (colorPick) colorPick.oninput = e => { $('color').value = e.target.value; applyStyle('color', e.target.value); };
+  if (bgPick) bgPick.oninput = e => { $('bg-color').value = e.target.value; applyStyle('backgroundColor', e.target.value); };
+  if (borderPick) borderPick.oninput = e => { $('border-color').value = e.target.value; applyStyle('borderColor', e.target.value); };
   
   // Clear buttons
-  $('color-clear').onclick = () => { $('color').value = ''; applyStyle('color', ''); };
-  $('bg-clear').onclick = () => { $('bg-color').value = ''; applyStyle('backgroundColor', ''); };
-  $('border-clear').onclick = () => { $('border-color').value = ''; applyStyle('borderColor', ''); };
+  const colorClear = $('color-clear');
+  const bgClear = $('bg-clear');
+  const borderClear = $('border-clear');
+  
+  if (colorClear) colorClear.onclick = () => { $('color').value = ''; applyStyle('color', ''); };
+  if (bgClear) bgClear.onclick = () => { $('bg-color').value = ''; applyStyle('backgroundColor', ''); };
+  if (borderClear) borderClear.onclick = () => { $('border-color').value = ''; applyStyle('borderColor', ''); };
   
   // Save buttons
   if ($('save-css')) $('save-css').onclick = saveToCss;
@@ -372,9 +508,10 @@ export function initInspector(apiUrl, hasTailwind) {
   if ($('add-class-btn')) $('add-class-btn').onclick = addClass;
   
   // Tailwind live preview
-  if ($('tw-classes')) {
-    $('tw-classes').oninput = () => { 
-      if (selectedEl) selectedEl.className = $('tw-classes').value; 
+  const twClasses = $('tw-classes');
+  if (twClasses) {
+    twClasses.oninput = () => { 
+      if (selectedEl) selectedEl.className = twClasses.value; 
     };
   }
   

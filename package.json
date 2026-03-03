@@ -5,11 +5,11 @@
   "version": "0.1.0",
   "engines": { "vscode": "^1.85.0" },
   "main": "./out/extension.js",
-  "activationEvents": ["onLanguage:vue", "onLanguage:javascriptreact", "onLanguage:typescriptreact", "onLanguage:svelte"],
+  "activationEvents": ["onLanguage:vue", "onLanguage:javascriptreact", "onLanguage:typescriptreact", "onLanguage:svelte", "onLanguage:json"],
   "contributes": {
     "commands": [{ "command": "componentPreview.toggle", "title": "Preview Component", "icon": "$(eye)" }],
     "menus": {
-      "editor/title": [{ "command": "componentPreview.toggle", "when": "resourceExtname =~ /\\.(vue|jsx|tsx|svelte)$/", "group": "navigation" }]
+      "editor/title": [{ "command": "componentPreview.toggle", "when": "resourceExtname =~ /\\.(vue|jsx|tsx|svelte)$/ || resourceFilename =~ /design.?tokens|tokens|brand/", "group": "navigation" }]
     }
   },
   "scripts": {

@@ -1,10 +1,6 @@
 import http from 'http';
-import { 
-  updateCssFile, 
-  updateComponentStyle, 
-  updateTailwindClasses, 
-  addClassToElement 
-} from './handlers.js';
+import fs from 'fs';
+import path from 'path';
 import { getClassStyles, getStyleBlockStyles } from '../utils/detectCss.js';
 
 export function createApiServer(port, cssSetup, componentPath) {
@@ -27,26 +23,15 @@ export function createApiServer(port, cssSetup, componentPath) {
       try {
         let styles = null;
         
-        // Priority: 1) <style> block, 2) component CSS, 3) main CSS
         if (cssSetup.hasStyleBlock) {
           styles = getStyleBlockStyles(componentPath, className);
-          console.log(`Getting styles from <style> block for .${className}:`, styles);
         }
-        
         if (!styles && cssSetup.componentCss) {
           styles = getClassStyles(cssSetup.componentCss, className);
-          console.log(`Getting styles from component CSS for .${className}:`, styles);
-        }
-        
-        if (!styles && cssSetup.mainCss) {
-          styles = getClassStyles(cssSetup.mainCss, className);
         }
         
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-          styles: styles || {},
-          source: cssSetup.hasStyleBlock ? 'style-block' : (cssSetup.componentCss ? 'component-css' : 'main-css')
-        }));
+        res.end(JSON.stringify({ styles: styles || {} }));
       } catch (e) {
         res.writeHead(500);
         res.end(JSON.stringify({ error: e.message }));
@@ -54,7 +39,7 @@ export function createApiServer(port, cssSetup, componentPath) {
       return;
     }
     
-    // Parse JSON body for POST requests
+    // POST handlers
     if (req.method === 'POST') {
       let body = '';
       req.on('data', chunk => body += chunk);
@@ -65,23 +50,10 @@ export function createApiServer(port, cssSetup, componentPath) {
           
           switch (req.url) {
             case '/update-css':
-              // If component has <style> block, use that. Otherwise use CSS file
-              if (cssSetup.hasStyleBlock) {
-                result = updateComponentStyle(componentPath, data.className, data.styles);
-              } else if (cssSetup.componentCss) {
-                result = updateCssFile(cssSetup.componentCss, data.className, data.styles);
-              } else {
-                throw new Error('No CSS file or <style> block found');
-              }
-              break;
-            case '/update-component-style':
-              result = updateComponentStyle(componentPath, data.className, data.styles);
-              break;
-            case '/update-tailwind':
-              result = updateTailwindClasses(componentPath, data.oldClasses, data.newClasses);
+              result = updateCss(cssSetup, componentPath, data.className, data.styles);
               break;
             case '/add-class':
-              result = addClassToElement(componentPath, data.tagName, data.newClassName, data.nearbyText);
+              result = addClassToElement(componentPath, data.tagName, data.newClassName);
               break;
             default:
               res.writeHead(404);
@@ -109,4 +81,70 @@ export function createApiServer(port, cssSetup, componentPath) {
   });
   
   return server;
+}
+
+function updateCss(cssSetup, componentPath, className, styles) {
+  const cssProps = Object.entries(styles)
+    .filter(([_, v]) => v !== undefined && v !== '')
+    .map(([k, v]) => `  ${k.replace(/([A-Z])/g, '-$1').toLowerCase()}: ${v};`)
+    .join('\n');
+  
+  if (!cssProps) throw new Error('No styles to save');
+  
+  const newRule = `.${className} {\n${cssProps}\n}`;
+  
+  // Try style block first
+  if (cssSetup.hasStyleBlock) {
+    let content = fs.readFileSync(componentPath, 'utf-8');
+    const styleMatch = content.match(/<style([^>]*)>([\s\S]*?)<\/style>/i);
+    
+    if (styleMatch) {
+      let styleContent = styleMatch[2];
+      const classRegex = new RegExp(`\\.${className}\\s*\\{[^}]*\\}`, 's');
+      
+      if (classRegex.test(styleContent)) {
+        styleContent = styleContent.replace(classRegex, newRule);
+      } else {
+        styleContent = styleContent.trim() + '\n\n' + newRule + '\n';
+      }
+      
+      content = content.replace(/<style([^>]*)>[\s\S]*?<\/style>/i, `<style${styleMatch[1]}>${styleContent}</style>`);
+      fs.writeFileSync(componentPath, content);
+      return { success: true };
+    }
+  }
+  
+  // Try CSS file
+  if (cssSetup.componentCss) {
+    let content = fs.readFileSync(cssSetup.componentCss, 'utf-8');
+    const classRegex = new RegExp(`\\.${className}\\s*\\{[^}]*\\}`, 's');
+    
+    if (classRegex.test(content)) {
+      content = content.replace(classRegex, newRule);
+    } else {
+      content += '\n\n' + newRule;
+    }
+    
+    fs.writeFileSync(cssSetup.componentCss, content);
+    return { success: true };
+  }
+  
+  throw new Error('No CSS file or <style> block found');
+}
+
+function addClassToElement(componentPath, tagName, newClassName) {
+  let content = fs.readFileSync(componentPath, 'utf-8');
+  const ext = path.extname(componentPath);
+  
+  // Pattern to find tag and add class
+  const classAttr = ext === '.jsx' || ext === '.tsx' ? 'className' : 'class';
+  const pattern = new RegExp(`(<${tagName})(\\s)`, 'i');
+  
+  if (pattern.test(content)) {
+    content = content.replace(pattern, `$1 ${classAttr}="${newClassName}"$2`);
+    fs.writeFileSync(componentPath, content);
+    return { success: true };
+  }
+  
+  throw new Error(`Could not find <${tagName}> element`);
 }

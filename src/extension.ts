@@ -34,16 +34,21 @@ async function toggle(context: vscode.ExtensionContext) {
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
   const projectRoot = workspaceFolder?.uri.fsPath || path.dirname(filePath);
   
-  // Detect framework
+  // Detect framework or style guide mode
   let framework: string;
+  let isStyleGuide = false;
+  
   if (ext === '.vue') {
     framework = 'vue';
   } else if (ext === '.jsx' || ext === '.tsx') {
     framework = 'react';
   } else if (ext === '.svelte') {
     framework = 'svelte';
+  } else if (ext === '.json' && (filePath.includes('token') || filePath.includes('design') || filePath.includes('brand'))) {
+    framework = 'styleguide';
+    isStyleGuide = true;
   } else {
-    vscode.window.showWarningMessage('Unsupported file type. Use .vue, .jsx, .tsx, or .svelte');
+    vscode.window.showWarningMessage('Unsupported file type. Use .vue, .jsx, .tsx, .svelte, or design-tokens.json');
     return;
   }
 

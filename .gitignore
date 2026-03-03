@@ -1,3 +1,5 @@
 /out
 /node_modules 
+/viewer/node_modules
+/viewer/.preview-temp
 .DS_Store

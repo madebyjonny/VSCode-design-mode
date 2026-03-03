@@ -1,83 +1,94 @@
-import path from 'path';
 import fs from 'fs';
+import path from 'path';
 
 export function detectCssSetup(projectRoot, componentPath) {
-  const result = { 
-    hasTailwind: false, 
-    mainCss: null, 
+  const result = {
+    hasTailwind: false,
+    hasStyleBlock: false,
     componentCss: null,
-    hasStyleBlock: false 
+    mainCss: null,
   };
 
-  // Check Tailwind
+  // Check for Tailwind
   const tailwindConfig = ['tailwind.config.js', 'tailwind.config.ts', 'tailwind.config.mjs']
-    .map(f => path.join(projectRoot, f)).find(f => fs.existsSync(f));
-  if (tailwindConfig) result.hasTailwind = true;
+    .map(f => path.join(projectRoot, f))
+    .find(f => fs.existsSync(f));
+  
+  if (tailwindConfig) {
+    result.hasTailwind = true;
+    console.log('Tailwind: Detected');
+  }
 
+  // Check package.json
   const pkgPath = path.join(projectRoot, 'package.json');
   if (fs.existsSync(pkgPath)) {
     try {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      if (pkg.dependencies?.tailwindcss || pkg.devDependencies?.tailwindcss) result.hasTailwind = true;
-    } catch (e) {}
+      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+      if (deps.tailwindcss) result.hasTailwind = true;
+    } catch {}
   }
 
   // Find main CSS
-  const cssLocations = ['src/index.css', 'src/main.css', 'src/styles/main.css', 'src/assets/main.css', 'src/app.css'];
+  const cssLocations = [
+    'src/index.css', 'src/main.css', 'src/styles/main.css',
+    'src/styles/index.css', 'src/assets/main.css', 'src/app.css',
+  ];
+
   for (const loc of cssLocations) {
     const fullPath = path.join(projectRoot, loc);
     if (fs.existsSync(fullPath)) {
       result.mainCss = fullPath;
+      console.log(`Main CSS: ${loc}`);
       break;
     }
   }
 
-  // Check component file
+  // Check component for <style> block and CSS imports
   if (fs.existsSync(componentPath)) {
     const content = fs.readFileSync(componentPath, 'utf-8');
     
-    // Check for <style> block first (Vue, Svelte)
+    // Check for <style> block
     if (/<style[^>]*>[\s\S]*<\/style>/i.test(content)) {
       result.hasStyleBlock = true;
-      console.log('Component has <style> block');
+      console.log('Style: <style> block detected');
     }
     
-    // Check for CSS imports
-    console.log('Scanning component for CSS imports...');
-    const cssImportRegex = /import\s+["']([^"']+\.css)["']/g;
-    let match;
-    while ((match = cssImportRegex.exec(content)) !== null) {
-      const importPath = match[1];
-      console.log(`  Found: ${importPath}`);
-      
-      const componentDir = path.dirname(componentPath);
-      const resolvedPath = path.resolve(componentDir, importPath);
-      
-      if (fs.existsSync(resolvedPath)) {
-        result.componentCss = resolvedPath;
-        console.log(`  ✓ Resolved: ${resolvedPath}`);
-        break;
+    // Check for CSS import
+    const cssImportMatch = content.match(/import\s+["']([^"']+\.css)["']/);
+    if (cssImportMatch) {
+      const cssPath = path.resolve(path.dirname(componentPath), cssImportMatch[1]);
+      if (fs.existsSync(cssPath)) {
+        result.componentCss = cssPath;
+        console.log(`Component CSS: ${cssImportMatch[1]}`);
       }
     }
   }
 
-  console.log(`\nTailwind:      ${result.hasTailwind ? 'Yes' : 'No'}`);
-  console.log(`Style block:   ${result.hasStyleBlock ? 'Yes' : 'No'}`);
-  console.log(`Main CSS:      ${result.mainCss || 'None'}`);
-  console.log(`Component CSS: ${result.componentCss || 'None'}\n`);
-  
   return result;
 }
 
-// Parse CSS file and extract rules for a specific class
+// Get styles for a class from CSS file
 export function getClassStyles(cssFile, className) {
   if (!cssFile || !fs.existsSync(cssFile)) return null;
   
   const content = fs.readFileSync(cssFile, 'utf-8');
-  return parseStylesForClass(content, className);
+  const classMatch = content.match(new RegExp(`\\.${className}\\s*\\{([^}]*)\\}`, 's'));
+  
+  if (!classMatch) return null;
+  
+  const styles = {};
+  const propRegex = /([a-z-]+)\s*:\s*([^;]+);/gi;
+  let m;
+  while ((m = propRegex.exec(classMatch[1]))) {
+    const prop = m[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    styles[prop] = m[2].trim();
+  }
+  
+  return styles;
 }
 
-// Parse styles from a <style> block in component
+// Get styles from component's <style> block
 export function getStyleBlockStyles(componentPath, className) {
   if (!fs.existsSync(componentPath)) return null;
   
@@ -86,27 +97,17 @@ export function getStyleBlockStyles(componentPath, className) {
   
   if (!styleMatch) return null;
   
-  return parseStylesForClass(styleMatch[1], className);
-}
-
-// Helper to parse CSS content for a class
-function parseStylesForClass(cssContent, className) {
-  const classRegex = new RegExp(`\\.${className}\\s*\\{([^}]*)\\}`, 's');
-  const match = cssContent.match(classRegex);
+  const styleContent = styleMatch[1];
+  const classMatch = styleContent.match(new RegExp(`\\.${className}\\s*\\{([^}]*)\\}`, 's'));
   
-  if (!match) return null;
+  if (!classMatch) return null;
   
   const styles = {};
-  const propsStr = match[1];
   const propRegex = /([a-z-]+)\s*:\s*([^;]+);/gi;
-  let propMatch;
-  
-  while ((propMatch = propRegex.exec(propsStr)) !== null) {
-    const prop = propMatch[1].trim();
-    const value = propMatch[2].trim();
-    // Convert to camelCase
-    const camelProp = prop.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-    styles[camelProp] = value;
+  let m;
+  while ((m = propRegex.exec(classMatch[1]))) {
+    const prop = m[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    styles[prop] = m[2].trim();
   }
   
   return styles;

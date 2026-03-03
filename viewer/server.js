@@ -3,12 +3,13 @@ import vue from '@vitejs/plugin-vue';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import fs from 'fs';
+import http from 'http';
 import { fileURLToPath } from 'url';
 
 import { detectCssSetup } from './utils/detectCss.js';
 import { getEntryCode } from './utils/entryCode.js';
 import { createApiServer } from './api/server.js';
-import { generateHtml } from './client/template.js';
+import { generateHtml, generateStyleGuideHtml } from './client/template.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -38,8 +39,49 @@ console.log(`Component:  ${absoluteComponentPath}`);
 console.log(`Project:    ${absoluteProjectRoot}`);
 console.log(`Port:       ${port}\n`);
 
+// Check if this is style guide mode (opening a tokens JSON file)
+if (framework === 'styleguide') {
+  console.log('Mode: Style Guide Viewer\n');
+  
+  const tokensData = JSON.parse(fs.readFileSync(absoluteComponentPath, 'utf-8'));
+  const html = generateStyleGuideHtml(tokensData);
+  
+  const server = http.createServer((req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.end(html);
+  });
+  
+  server.listen(port, () => {
+    console.log(`Style Guide: http://localhost:${port}\n`);
+  });
+  
+  process.on('SIGINT', () => { server.close(); process.exit(); });
+  process.on('SIGTERM', () => { server.close(); process.exit(); });
+} else {
+  // Normal component preview mode
+
 // Detect CSS setup
 const cssSetup = detectCssSetup(absoluteProjectRoot, absoluteComponentPath);
+
+// Load design tokens if they exist
+function loadDesignTokens() {
+  const tokenFiles = ['design-tokens.json', 'tokens.json', 'design-system.json'];
+  for (const file of tokenFiles) {
+    const tokenPath = path.join(absoluteProjectRoot, file);
+    if (fs.existsSync(tokenPath)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(tokenPath, 'utf-8'));
+        console.log(`Tokens: ${file}`);
+        return data;
+      } catch (e) {
+        console.log(`Tokens: ${file} (parse error)`);
+      }
+    }
+  }
+  return null;
+}
+
+const designTokens = loadDesignTokens();
 
 // Create temp directory
 const previewDir = path.join(__dirname, '.preview-temp');
@@ -54,7 +96,7 @@ fs.writeFileSync(entryFile, getEntryCode(framework, absoluteComponentPath, cssSe
 // Write HTML file
 const apiPort = port + 1;
 const htmlFile = path.join(previewDir, 'index.html');
-fs.writeFileSync(htmlFile, generateHtml(apiPort, cssSetup));
+fs.writeFileSync(htmlFile, generateHtml(apiPort, cssSetup, designTokens));
 
 console.log(`Entry: ${entryFile}`);
 console.log(`HTML:  ${htmlFile}\n`);
@@ -113,3 +155,4 @@ start().catch(err => {
   console.error('Failed to start:', err);
   process.exit(1);
 });
+}
